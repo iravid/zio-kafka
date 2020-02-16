@@ -12,6 +12,9 @@ package object embedded {
       def stop(): UIO[Unit]
     }
 
+    val bootstrapServers: URIO[Kafka, List[String]] = ZIO.access[Kafka](_.get[Service].bootstrapServers)
+    val stop: URIO[Kafka, Unit]                     = ZIO.accessM[Kafka](_.get[Service].stop())
+
     case class EmbeddedKafkaService(embeddedK: EmbeddedK) extends Service {
       override def bootstrapServers: List[String] = List(s"localhost:${embeddedK.config.kafkaPort}")
       override def stop(): UIO[Unit]              = ZIO.effectTotal(embeddedK.stop(true))
