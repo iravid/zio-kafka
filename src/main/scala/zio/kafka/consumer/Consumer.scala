@@ -198,23 +198,19 @@ object Consumer {
       keyDeserializer: Deserializer[R, K],
       valueDeserializer: Deserializer[R, V]
     ): Stream[Throwable, Chunk[(TopicPartition, ZStream[R, Throwable, CommittableRecord[K, V]])]] =
-      ZStream.fromEffect {
-        keyDeserializer.configure(settings.driverSettings, isKey = true) *>
-          valueDeserializer.configure(settings.driverSettings, isKey = false)
-      } *>
-        ZStream
-          .fromQueue(runloop.partitions)
-          .map(_.exit)
-          .flattenExitOption
-          .map {
-            _.map { case (tp, partition) =>
-              val partitionStream =
-                if (settings.perPartitionChunkPrefetch <= 0) partition
-                else partition.buffer(settings.perPartitionChunkPrefetch)
+      ZStream
+        .fromQueue(runloop.partitions)
+        .map(_.exit)
+        .flattenExitOption
+        .map {
+          _.map { case (tp, partition) =>
+            val partitionStream =
+              if (settings.perPartitionChunkPrefetch <= 0) partition
+              else partition.buffer(settings.perPartitionChunkPrefetch)
 
-              tp -> partitionStream.mapChunksM(_.mapM(_.deserializeWith(keyDeserializer, valueDeserializer)))
-            }
+            tp -> partitionStream.mapChunksM(_.mapM(_.deserializeWith(keyDeserializer, valueDeserializer)))
           }
+        }
 
     override def partitionedStream[R, K, V](
       keyDeserializer: Deserializer[R, K],

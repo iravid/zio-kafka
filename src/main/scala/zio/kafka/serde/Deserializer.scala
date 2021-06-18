@@ -3,6 +3,7 @@ package zio.kafka.serde
 import org.apache.kafka.common.header.Headers
 import org.apache.kafka.common.serialization.{ Deserializer => KafkaDeserializer }
 import zio.{ RIO, Task, ZIO }
+import zio.blocking.{ Blocking, blocking => zioBlocking }
 
 import scala.annotation.nowarn
 import scala.util.{ Failure, Success, Try }
@@ -16,7 +17,12 @@ import scala.jdk.CollectionConverters._
  */
 trait Deserializer[-R, +T] {
   def deserialize(topic: String, headers: Headers, data: Array[Byte]): RIO[R, T]
-  def configure(props: Map[String, AnyRef], isKey: Boolean): Task[Unit]
+
+  /**
+   * Returns a new deserializer that executes its deserialization function on the blocking threadpool.
+   */
+  def blocking: Deserializer[R with Blocking, T] =
+    Deserializer((topic, headers, data) => zioBlocking(deserialize(topic, headers, data)))
 
   /**
    * Create a deserializer for a type U based on the deserializer for type T and a mapping function
@@ -46,6 +52,10 @@ trait Deserializer[-R, +T] {
   def asTry: Deserializer[R, Try[T]] =
     Deserializer(deserialize(_, _, _).fold(e => Failure(e), v => Success(v)))
 
+  /**
+   * Returns a new deserializer that deserializes values as Option values,
+   * mapping null data to None values.
+   */
   def asOption(implicit @nowarn ev: T <:< AnyRef): Deserializer[R, Option[T]] =
     Deserializer((topic, headers, data) => ZIO.foreach(Option(data))(deserialize(topic, headers, _)))
 }
@@ -58,18 +68,21 @@ object Deserializer extends Serdes {
   def apply[R, T](deser: (String, Headers, Array[Byte]) => RIO[R, T]): Deserializer[R, T] = new Deserializer[R, T] {
     override def deserialize(topic: String, headers: Headers, data: Array[Byte]): RIO[R, T] =
       deser(topic, headers, data)
-
-    override def configure(props: Map[String, AnyRef], isKey: Boolean): Task[Unit] = Task.unit
   }
 
   /**
    * Create a Deserializer from a Kafka Deserializer
    */
-  def apply[T](deserializer: KafkaDeserializer[T]): Deserializer[Any, T] = new Deserializer[Any, T] {
-    override def deserialize(topic: String, headers: Headers, data: Array[Byte]): Task[T] =
-      Task(deserializer.deserialize(topic, headers, data))
-
-    override def configure(props: Map[String, AnyRef], isKey: Boolean): zio.Task[Unit] =
-      Task(deserializer.configure(props.asJava, isKey))
-  }
+  def fromKafkaDeserializer[T](
+    deserializer: KafkaDeserializer[T],
+    props: Map[String, AnyRef],
+    isKey: Boolean
+  ): Task[Deserializer[Any, T]] =
+    Task(deserializer.configure(props.asJava, isKey))
+      .as(
+        new Deserializer[Any, T] {
+          override def deserialize(topic: String, headers: Headers, data: Array[Byte]): Task[T] =
+            Task(deserializer.deserialize(topic, headers, data))
+        }
+      )
 }

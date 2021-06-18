@@ -12,7 +12,7 @@ object DeserializerSpec extends DefaultRunnableSpec {
         assertM(stringDeserializer.asOption.deserialize("topic1", new RecordHeaders, null))(isNone)
       },
       testM("deserialize to None when value is null also when underlying deserializer fails on null values") {
-        val deserializer = Deserializer((_, _, _) => ZIO.fail(new RuntimeException("cannot handle null")))
+        val deserializer = Deserializer[Any, Nothing]((_, _, _) => ZIO.fail(new RuntimeException("cannot handle null")))
         assertM(deserializer.asOption.deserialize("topic1", new RecordHeaders, null))(isNone)
       },
       testM("deserialize to Some when value is not null") {
